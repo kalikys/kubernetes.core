@@ -26,6 +26,25 @@ from kubernetes.dynamic import DynamicClient
 
 
 class K8SDynamicClient(DynamicClient):
+    def __init__(self, client, cache_file=None, discoverer=None, request_timeout=None):
+        # Set before calling the parent: discovery already sends requests.
+        # A (connect, read) tuple works with every supported kubernetes client;
+        # older ones silently ignore a float.
+        self.request_timeout = None
+        if request_timeout is not None:
+            self.request_timeout = (request_timeout, request_timeout)
+        super().__init__(client, cache_file=cache_file, discoverer=discoverer)
+
+    def request(self, method, path, body=None, **params):
+        # Watch requests stream until their own timeout and stay untouched.
+        if (
+            self.request_timeout is not None
+            and params.get("_request_timeout") is None
+            and not params.get("watch")
+        ):
+            params["_request_timeout"] = self.request_timeout
+        return super().request(method, path, body=body, **params)
+
     def apply(self, resource, body=None, name=None, namespace=None, **kwargs):
         body = super().serialize_body(body)
         body["metadata"] = body.get("metadata", dict())
