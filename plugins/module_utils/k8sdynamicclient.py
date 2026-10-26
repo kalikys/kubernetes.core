@@ -17,12 +17,33 @@ from __future__ import absolute_import, division, print_function
 
 __metaclass__ = type
 
+import inspect
 
 from ansible_collections.kubernetes.core.plugins.module_utils.apply import k8s_apply
 from ansible_collections.kubernetes.core.plugins.module_utils.exceptions import (
     ApplyException,
 )
 from kubernetes.dynamic import DynamicClient
+
+
+class _TimeoutApi:
+    """Typed API (e.g. CoreV1Api) whose calls use a default request timeout."""
+
+    def __init__(self, api, request_timeout):
+        self._api = api
+        self._request_timeout = request_timeout
+
+    def __getattr__(self, name):
+        attr = getattr(self._api, name)
+        if name.startswith("_") or not inspect.ismethod(attr):
+            return attr
+
+        def call(*args, **kwargs):
+            if kwargs.get("_request_timeout") is None and not kwargs.get("watch"):
+                kwargs["_request_timeout"] = self._request_timeout
+            return attr(*args, **kwargs)
+
+        return call
 
 
 class K8SDynamicClient(DynamicClient):
@@ -44,6 +65,17 @@ class K8SDynamicClient(DynamicClient):
         ):
             params["_request_timeout"] = self.request_timeout
         return super().request(method, path, body=body, **params)
+
+    def typed_api(self, api_class):
+        """Build a typed API client (e.g. CoreV1Api) that honours request_timeout.
+
+        Calls made through typed APIs go straight to ApiClient and skip
+        request(), so they need the timeout passed explicitly.
+        """
+        api = api_class(self.client)
+        if self.request_timeout is None:
+            return api
+        return _TimeoutApi(api, self.request_timeout)
 
     def apply(self, resource, body=None, name=None, namespace=None, **kwargs):
         body = super().serialize_body(body)

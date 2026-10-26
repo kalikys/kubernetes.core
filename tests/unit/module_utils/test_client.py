@@ -240,6 +240,7 @@ def _dynamic_client(request_timeout):
     def fake_init(self, client, cache_file=None, discoverer=None):
         # Discovery runs in the parent constructor, so the timeout must be set already.
         seen["timeout"] = self.request_timeout
+        self.client = client
 
     with mock.patch.object(DynamicClient, "__init__", fake_init):
         client = K8SDynamicClient(MagicMock(), request_timeout=request_timeout)
@@ -286,3 +287,52 @@ def test_dynamic_client_without_request_timeout(parent_request):
     client.request("get", "/api/v1/pods")
 
     parent_request.assert_called_once_with("get", "/api/v1/pods", body=None)
+
+
+class _FakeCoreV1Api:
+    def __init__(self, api_client):
+        self.api_client = api_client
+        self.calls = []
+
+    def read_node(self, **kwargs):
+        self.calls.append(kwargs)
+        return "node"
+
+
+def test_typed_api_applies_request_timeout():
+    client, _ = _dynamic_client(5.0)
+
+    api = client.typed_api(_FakeCoreV1Api)
+
+    assert api.read_node(name="n1") == "node"
+    assert api.read_node(name="n2", _request_timeout=60) == "node"
+    assert api.read_node(name="n3", watch=True) == "node"
+    assert api.calls == [
+        {"name": "n1", "_request_timeout": (5.0, 5.0)},
+        {"name": "n2", "_request_timeout": 60},
+        {"name": "n3", "watch": True},
+    ]
+    assert api.api_client is client.client
+
+
+def test_typed_api_without_request_timeout():
+    client, _ = _dynamic_client(None)
+
+    api = client.typed_api(_FakeCoreV1Api)
+
+    assert isinstance(api, _FakeCoreV1Api)
+    api.read_node(name="n1")
+    assert api.calls == [{"name": "n1"}]
+
+
+def test_get_api_client_reports_connection_errors():
+    import urllib3
+    from ansible_collections.kubernetes.core.plugins.module_utils.k8s import client
+
+    module = MagicMock()
+    module.params = {"host": TEST_HOST, "request_timeout": 1}
+    module.server_side_dry_run = False
+    error = urllib3.exceptions.MaxRetryError(None, "/version", "timed out")
+    with mock.patch.object(client, "create_api_client", side_effect=error):
+        with pytest.raises(CoreException, match="Could not connect to the API server"):
+            client.get_api_client(module=module)
