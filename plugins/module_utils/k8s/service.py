@@ -36,6 +36,12 @@ except ImportError:
     pass
 
 try:
+    from urllib3.exceptions import HTTPError
+except ImportError:
+    # Handled in module setup
+    pass
+
+try:
     from kubernetes.dynamic.resource import Resource, ResourceInstance
 except ImportError:
     # These are defined only for the sake of Ansible's checked import requirement
@@ -91,6 +97,10 @@ class K8sService:
                     "Failed to find exact match for %s.%s by [kind, name, singularName, shortNames]"
                     % (api_version, kind)
                 )
+        except HTTPError as e:
+            raise CoreException(
+                "Could not connect to the API server: {0}".format(e)
+            ) from e
 
     def wait(
         self, resource: Resource, instance: Dict

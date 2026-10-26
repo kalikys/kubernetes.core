@@ -330,7 +330,7 @@ def test_get_api_client_reports_connection_errors():
     from ansible_collections.kubernetes.core.plugins.module_utils.k8s import client
 
     module = MagicMock()
-    module.params = {"host": TEST_HOST, "request_timeout": 1}
+    module.params = {"host": TEST_HOST, "api_key": TEST_DATA, "request_timeout": 1}
     module.server_side_dry_run = False
     error = urllib3.exceptions.MaxRetryError(None, "/version", "timed out")
     with mock.patch.object(client, "create_api_client", side_effect=error):
