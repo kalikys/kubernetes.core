@@ -381,6 +381,9 @@ def get_api_client(module=None, **kwargs: Optional[Any]) -> K8SClient:
     except kubernetes.config.ConfigException as e:
         msg = "Could not create API client: {0}".format(e)
         raise CoreException(msg) from e
+    except urllib3.exceptions.HTTPError as e:
+        msg = "Could not connect to the API server: {0}".format(e)
+        raise CoreException(msg) from e
 
     dry_run = False
     if module and module.server_side_dry_run:
